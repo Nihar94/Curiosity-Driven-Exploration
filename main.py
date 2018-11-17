@@ -4,17 +4,21 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.autograd import Variable
 from ICM import *
 from A2C import *
 import nel
 import gym
 import pdb
 
+env = gym.make('NEL-v0')
+
 class Curiosity():
 	def __init__(self, args):
 		global env
 		self.actor_model = Actor()
 		self.critic_model = Critic()
+		self.features = Features()
 		self.e = args.e
 		self.N = args.n
 		if(args.load_critic):
@@ -32,10 +36,11 @@ class Curiosity():
 		rewards = []
 		state = env.reset()
 		e = 0
-		while e<1000:
+		while True:
 			e += 1
 			actions_arr = torch.arange(self.env.action_space.n)
-			action_probs = self.actor_model.forward(state)
+			state = self.features(state)
+			action_probs = self.actor_model(state)
 			p = np.random.random(1)
 			if(np.random.random(1) < 0.3):
 				action = np.random.randint(env.action_space.n)
@@ -46,40 +51,47 @@ class Curiosity():
 			states.append(state)
 			rewards.append(reward)
 			state = next_state
-		return torch.FloatTensor(states), torch.LongTensor(actions), torch.FloatTensor(rewards)
+			if(e>30000):
+				if(sum(rewards)>0):
+					print('Length of Episode: '+str(len(actions))+', Reward: '+str(sum(rewards)))
+					break
+				else:
+					states = []
+					actions = []
+					rewards = []
+		return torch.stack(states), torch.LongTensor(actions), torch.FloatTensor(rewards)
 
-	def train(self, args):
+	def train(self, args, gamma=1.0):
 		actor_optimizer = torch.optim.Adam(self.actor_model.parameters(), lr=self.actor_lr)
 		critic_optimizer = torch.optim.Adam(self.critic_model.parameters(), lr=self.critic_lr)
 		e = self.e
 		while e<self.num_episodes:
 			e+=1
-			s, a, r = self.generate_episode(self.env)
-			pdb.set_trace()
-			T = len(s)
+			states, actions, rewards = self.generate_episode(self.env)
+			T = len(states)
 			N = self.N
 			R = torch.FloatTensor([0]*T)
 			for t in range(T-1, 0, -1):
-				V_end = 0 if (t+N>=T) else self.critic_model(s[t+N])[a[t+N]]
+				V_end = 0 if (t+N>=T) else self.critic_model(states[t+N])[actions[t+N]]
 				R[t] = (gamma**N)*V_end
 				for k in range(N):
-					R[t] += (gamma**k)*r[t+k] if(t+k<T) else 0
-			pi_A_S = self.actor_model(s)
+					R[t] += (gamma**k)*rewards[t+k] if(t+k<T) else 0
+			pi_A_S = self.actor_model(states)
 			log_prob = torch.log(pi_A_S)
 			log_probs = torch.zeros(len(log_prob))
-			a = a.long()
-			for i in range(len(a)):
-				log_probs[i] = log_prob[i][a[i]]
-			Vw_St, _ = torch.max(self.critic_model(s),dim=1)
+			actions = actions.long()
+			for i in range(len(actions)):
+				log_probs[i] = log_prob[i][actions[i]]
+			Vw_St, _ = torch.max(self.critic_model(states),dim=1)
 			scaling_factor = (R.detach() - Vw_St.detach())
 			L_theta = torch.mean(scaling_factor*(-log_probs))
 			L_w = torch.mean((R - Vw_St)**2)
-            actor_optimizer.zero_grad()
+			actor_optimizer.zero_grad()
 			critic_optimizer.zero_grad()
 			tmp = L_theta + L_w
 			tmp.backward()
-            actor_optimizer.step()
-            critic_optimizer.step()
+			actor_optimizer.step()
+			critic_optimizer.step()
 			if(e%100==0):
 				torch.save(self.actor_model.state_dict(),'/home/nihar/Desktop/DeepRL/Curiosity/models/N_'+str(self.N)+'/actor/'+'actor_model_'+'N_'+str(self.N)+'_episode_'+str(e))
 				torch.save(self.critic_model.state_dict(),'/home/nihar/Desktop/DeepRL/Curiosity/models/N_'+str(self.N)+'/critic/'+'critic_model_'+'N_'+str(self.N)+'_episode_'+str(e))
@@ -119,6 +131,7 @@ def main(args):
 	global env
 	args = parse_arguments()
 	curiosity = Curiosity(args)
+	curiosity.train(args)
 
 if __name__ == '__main__':
 	main(sys.argv)

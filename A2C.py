@@ -4,9 +4,49 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.autograd import Variable
+from ICM import *
+from A2C import *
+import nel
 import gym
 import pdb
 
+
+class Features(nn.Module):
+    def __init__(self):
+        super(Features, self).__init__()
+        # Fusion multiplier for Visual Features
+        self.alpha = Variable(torch.randn(1), requires_grad=True)*0+1
+        
+        # Fusion multiplier for Scent
+        self.beta = Variable(torch.randn(1), requires_grad=True)*0+1
+        
+        # Learnable classifier1
+        self.vision_features = nn.Sequential(
+            nn.Linear(11*11*3, 50),
+            nn.LeakyReLU(inplace=True),
+            nn.Linear(50, 10),
+            nn.LeakyReLU(inplace=True)
+            )
+        self.vision_features.apply(weights_init)
+        # Learnable classifier2
+        self.combined_features = nn.Sequential(
+            nn.Linear(14, 14),
+            nn.LeakyReLU(inplace=True)
+            )
+        self.combined_features.apply(weights_init)
+
+    def forward(self, state):
+        scent = torch.from_numpy(state['scent'])
+        vision = torch.from_numpy(state['vision']).view(-1)
+        moved = int(state['moved'] == True)
+        vision_features = self.alpha * self.vision_features(vision)
+        scent = self.beta * scent
+        movement = torch.tensor([moved]).float()
+        movement.requires_grad=True
+        combined_features = torch.cat((vision_features, scent, movement), 0)
+        combined_features = self.combined_features(combined_features)
+        return combined_features
 
 # Policy Model
 
@@ -15,28 +55,40 @@ class Actor(nn.Module):
         super(Actor, self).__init__()
         global num_states, num_actions
 
-        self.ff1 = nn.Linear(num_states,8, bias=True)
-        torch.nn.init.xavier_uniform_(self.ff1.weight, gain=1)
-        self.relu = nn.ReLU()
+        # Fusion multiplier for Visual Features
+        self.alpha = Variable(torch.randn(1), requires_grad=True)*0+1
+        
+        # Fusion multiplier for Scent
+        self.beta = Variable(torch.randn(1), requires_grad=True)*0+1
+        
+        # Learnable classifier1
+        self.vision_features = nn.Sequential(
+            nn.Linear(11*11*3, 50),
+            nn.LeakyReLU(inplace=True),
+            nn.Linear(50, 10),
+            nn.LeakyReLU(inplace=True)
+            )
+        self.vision_features.apply(weights_init)
+        # Learnable classifier2
+        self.network = nn.Sequential(
+            nn.Linear(14, 10),
+            nn.LeakyReLU(inplace=True),
+            nn.Linear(10, 3),
+            nn.LeakyReLU(inplace=True)
+            )
+        self.network.apply(weights_init)
 
-        self.ff2 = nn.Linear(8,16,bias=True)
-        torch.nn.init.xavier_uniform_(self.ff2.weight, gain=1)
-        self.ff3 = nn.Linear(16,16,bias=True)
-        torch.nn.init.xavier_uniform_(self.ff3.weight, gain=1)
-
-        self.ff4 = nn.Linear(16,16,bias=True)
-        torch.nn.init.xavier_uniform_(self.ff4.weight, gain=1)
-
-        self.final = nn.Linear(16,num_actions,bias=True)
-        torch.nn.init.xavier_uniform_(self.final.weight, gain=1)
-
-    def forward(self, input):
-        input = torch.FloatTensor(input)
-        ff1 = self.relu(self.ff1(input))
-        ff2 = self.relu(self.ff2(ff1))
-        ff3 = self.relu(self.ff3(ff2))
-        ff4 = self.relu(self.ff4(ff3))
-        output = F.softmax(self.final(ff4))
+    def forward(self, state):
+        # scent = torch.from_numpy(state['scent'])
+        # vision = torch.from_numpy(state['vision']).view(-1)
+        # moved = int(state['moved'] == True)
+        # vision_features = self.alpha * state#self.vision_features(vision)
+        # scent = self.beta * scent
+        # movement = torch.tensor([moved]).float()
+        # movement.requires_grad=True
+        # combined_features = torch.cat((vision_features, scent, movement), 0)
+        actions = self.network(state)#combined_features)
+        output = F.softmax(actions)
         return output
 
 
@@ -45,28 +97,38 @@ class Actor(nn.Module):
 class Critic(nn.Module):
     def __init__(self):
         super(Critic, self).__init__()
-        global num_states, num_actions
 
-        self.ff1 = nn.Linear(num_states,8, bias=True)
-        torch.nn.init.xavier_uniform_(self.ff1.weight, gain=1)
-        self.relu = nn.ReLU()
+        # Fusion multiplier for Visual Features
+        self.alpha = Variable(torch.randn(1), requires_grad=True)*0+1
+        
+        # Fusion multiplier for Scent
+        self.beta = Variable(torch.randn(1), requires_grad=True)*0+1
+        
+        # Learnable classifier1
+        self.vision_features = nn.Sequential(
+            nn.Linear(11*11*3, 50),
+            nn.LeakyReLU(inplace=True),
+            nn.Linear(50, 10),
+            nn.LeakyReLU(inplace=True)
+            )
+        self.vision_features.apply(weights_init)
+        # Learnable classifier2
+        self.network = nn.Sequential(
+            nn.Linear(14, 10),
+            nn.LeakyReLU(inplace=True),
+            nn.Linear(10, 3),
+            nn.LeakyReLU(inplace=True)
+            )
+        self.network.apply(weights_init)
 
-        self.ff2 = nn.Linear(8,16,bias=True)
-        torch.nn.init.xavier_uniform_(self.ff2.weight, gain=1)
-        self.ff3 = nn.Linear(16,16,bias=True)
-        torch.nn.init.xavier_uniform_(self.ff3.weight, gain=1)
-
-        self.ff4 = nn.Linear(16,8,bias=True)
-        torch.nn.init.xavier_uniform_(self.ff4.weight, gain=1)
-
-        self.final = nn.Linear(8,num_actions,bias=True)
-        torch.nn.init.xavier_uniform_(self.final.weight, gain=1)
-
-    def forward(self, input):
-        input = torch.FloatTensor(input)
-        ff1 = self.relu(self.ff1(input))
-        ff2 = self.relu(self.ff2(ff1))
-        ff3 = self.relu(self.ff3(ff2))
-        ff4 = self.relu(self.ff4(ff3))
-        output = self.final(ff4)
-        return output
+    def forward(self, state):
+        # scent = torch.from_numpy(state['scent'])
+        # vision = torch.from_numpy(state['vision']).view(-1)
+        # moved = int(state['moved'] == True)
+        # vision_features = self.alpha * self.vision_features(vision)
+        # scent = self.beta * scent
+        # movement = torch.tensor([moved]).float()
+        # movement.requires_grad=True
+        # combined_features = torch.cat((vision_features, scent, movement), 0)
+        actions = self.network(state)#combined_features)
+        return actions

@@ -11,9 +11,9 @@ torch.manual_seed(10)
 np.random.seed(10)
 
 def weights_init(m):
-    classname = m.__class__.__name__
-    if(classname=='Linear'):
-	    torch.nn.init.xavier_uniform_(m.weight)
+	classname = m.__class__.__name__
+	if(classname=='Linear'):
+		torch.nn.init.xavier_uniform_(m.weight)
 
 class Features(nn.Module):
 	def __init__(self, args):
@@ -73,7 +73,7 @@ class ForwardModel(nn.Module):
 		super(ForwardModel, self).__init__()
 		self.network = nn.Sequential(
 			nn.Linear(11, 10),
-			nn.LeakyReLU(inplace=True)
+			nn.LeakyReLU(inplace=True),
 			nn.Linear(10,10)
 			)
 		self.network.apply(weights_init)
@@ -90,7 +90,7 @@ class InverseModel(nn.Module):
 		super(InverseModel, self).__init__()
 		self.network = nn.Sequential(
 			nn.Linear(20, 10),
-			nn.LeakyReLU(inplace=True)
+			nn.LeakyReLU(inplace=True),
 			nn.Linear(10,3)
 			)
 		self.network.apply(weights_init)
