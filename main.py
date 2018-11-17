@@ -19,6 +19,10 @@ class Curiosity():
 		self.actor_model = Actor()
 		self.critic_model = Critic()
 		self.features = Features()
+		self.icm_features = ICMFeatures()
+		self.icm_forward = ForwardModel()
+		self.intrinsic_reward = IntrinsicReward()
+		self.inv_model = InverseModel()
 		self.e = args.e
 		self.N = args.n
 		if(args.load_critic):
@@ -33,6 +37,7 @@ class Curiosity():
 	def generate_episode(self, env):
 		states = []
 		actions = []
+		actions_probdist = []
 		rewards = []
 		state = env.reset()
 		e = 0
@@ -41,6 +46,7 @@ class Curiosity():
 			actions_arr = torch.arange(self.env.action_space.n)
 			state = self.features(state)
 			action_probs = self.actor_model(state)
+			actions_probdist.append(action_probs)
 			p = np.random.random(1)
 			if(np.random.random(1) < 0.3):
 				action = np.random.randint(env.action_space.n)
@@ -59,7 +65,7 @@ class Curiosity():
 					states = []
 					actions = []
 					rewards = []
-		return torch.stack(states), torch.LongTensor(actions), torch.FloatTensor(rewards)
+		return torch.stack(states), torch.LongTensor(actions), torch.FloatTensor(rewards), torch.stack(actions_probdist)
 
 	def train(self, args, gamma=1.0):
 		actor_optimizer = torch.optim.Adam(self.actor_model.parameters(), lr=self.actor_lr)
@@ -67,15 +73,16 @@ class Curiosity():
 		e = self.e
 		while e<self.num_episodes:
 			e+=1
-			states, actions, rewards = self.generate_episode(self.env)
+			states, actions, rewards, action_probs = self.generate_episode(self.env)
 			
 			T = len(states)
 			N = self.N
 			R = torch.FloatTensor([0]*T)
-			
+			ICM_loss = 0
 			for t in range(T-1, 0, -1):
 				V_end = 0 if (t+N>=T) else self.critic_model.forward(states[t+N])[actions[t+N]]
 				R[t] = (gamma**N)*V_end
+				ICM_loss += self.ICMLoss(states[t], states[t+1], action_probs[t])
 				#pdb.set_trace()
 				tmp = 0
 				for k in range(N):
@@ -93,7 +100,7 @@ class Curiosity():
 			L_w = torch.mean((R - Vw_St)**2)
 			actor_optimizer.zero_grad()
 			critic_optimizer.zero_grad()
-			tmp = L_theta + L_w
+			tmp = L_theta + L_w + ICMLoss
 			tmp.backward()
 			actor_optimizer.step()
 			critic_optimizer.step()
@@ -103,6 +110,13 @@ class Curiosity():
 			
 		return
 
+	def ICMLoss(self, state, next_state, action_prob, lamda = 0.5, beta = 0.3):
+		pred_next_state_features = self.icm_forward(state, action_prob)
+		Lf, ri = self.intrinsic_reward(pred_next_state_features, next_state)
+		pred_action_prob = self.inv_model(state, next_state)
+		Li = self.inv_model.inv_loss(pred_action_prob, action_prob)
+		loss = -lamda*(ri) + (1-beta)*Li + beta*Lf
+		return loss
 def parse_arguments():
 	parser = argparse.ArgumentParser()
 	parser.add_argument('--model-config-path', dest='model_config_path',

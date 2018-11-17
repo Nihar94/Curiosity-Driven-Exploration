@@ -4,6 +4,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.autograd import Variable
 import gym
 import pdb
 
@@ -15,9 +16,9 @@ def weights_init(m):
 	if(classname=='Linear'):
 		torch.nn.init.xavier_uniform_(m.weight)
 
-class Features(nn.Module):
-	def __init__(self, args):
-		super(Features, self).__init__()
+class ICMFeatures(nn.Module):
+	def __init__(self):
+		super(ICMFeatures, self).__init__()
 		# Fusion multiplier for Visual Features
 		self.alpha = Variable(torch.randn(1), requires_grad=True)*0+1
 		
@@ -72,15 +73,15 @@ class ForwardModel(nn.Module):
 	def __init__(self):
 		super(ForwardModel, self).__init__()
 		self.network = nn.Sequential(
-			nn.Linear(11, 10),
+			nn.Linear(13, 10),
 			nn.LeakyReLU(inplace=True),
 			nn.Linear(10,10)
 			)
 		self.network.apply(weights_init)
 		self.sm = nn.Softmax(dim=0)
 
-	def forward(self, state_features, action):
-		representation = torch.cat((state_features, action), 0)
+	def forward(self, state_features, action_prob):
+		representation = torch.cat((state_features, action_prob), 0)
 		next_state_features = self.network(representation)
 		return next_state_features
 
@@ -100,10 +101,16 @@ class InverseModel(nn.Module):
 		a_cap = self.network(state_features, next_state_features)
 		return a_cap
 
+	def inv_loss(self, pred_action_prob, action_prob):
+		L1 = torch.abs(predicted_action_prob - action_prob)
+		L1 = L1.mean()
+		return L1
+
 class IntrinsicReward():
 	#def __init__(self):
 
-	def distance(self, predicted_next_state_features, next_state_features):
-		L1 = torch.abs(predicted_next_state_features - next_state_features)
-		ri = L1.mean()
-		return ri
+	def distance(self, predicted_next_state_features, next_state_features, n = 0.3):
+		Lf = (1/2)*(predicted_next_state_features - next_state_features)**2
+		Lf = Lf.mean()
+		ri = (n/2)*(predicted_next_state_features - next_state_features)**2
+		return Lf, ri
