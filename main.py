@@ -68,14 +68,19 @@ class Curiosity():
 		while e<self.num_episodes:
 			e+=1
 			states, actions, rewards = self.generate_episode(self.env)
+			
 			T = len(states)
 			N = self.N
 			R = torch.FloatTensor([0]*T)
+			
 			for t in range(T-1, 0, -1):
-				V_end = 0 if (t+N>=T) else self.critic_model(states[t+N])[actions[t+N]]
+				V_end = 0 if (t+N>=T) else self.critic_model.forward(states[t+N])[actions[t+N]]
 				R[t] = (gamma**N)*V_end
+				#pdb.set_trace()
+				tmp = 0
 				for k in range(N):
-					R[t] += (gamma**k)*rewards[t+k] if(t+k<T) else 0
+					tmp += (gamma**k)*rewards[t+k] if(t+k<T) else 0
+				R[t] += tmp
 			pi_A_S = self.actor_model(states)
 			log_prob = torch.log(pi_A_S)
 			log_probs = torch.zeros(len(log_prob))
@@ -92,9 +97,10 @@ class Curiosity():
 			tmp.backward()
 			actor_optimizer.step()
 			critic_optimizer.step()
-			if(e%100==0):
-				torch.save(self.actor_model.state_dict(),'/home/nihar/Desktop/DeepRL/Curiosity/models/N_'+str(self.N)+'/actor/'+'actor_model_'+'N_'+str(self.N)+'_episode_'+str(e))
-				torch.save(self.critic_model.state_dict(),'/home/nihar/Desktop/DeepRL/Curiosity/models/N_'+str(self.N)+'/critic/'+'critic_model_'+'N_'+str(self.N)+'_episode_'+str(e))
+			#if(e%100==0):
+			#	torch.save(self.actor_model.state_dict(),'/home/nihar/Desktop/DeepRL/Curiosity/models/N_'+str(self.N)+'/actor/'+'actor_model_'+'N_'+str(self.N)+'_episode_'+str(e))
+			#	torch.save(self.critic_model.state_dict(),'/home/nihar/Desktop/DeepRL/Curiosity/models/N_'+str(self.N)+'/critic/'+'critic_model_'+'N_'+str(self.N)+'_episode_'+str(e))
+			
 		return
 
 def parse_arguments():

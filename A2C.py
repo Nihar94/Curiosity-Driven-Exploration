@@ -97,22 +97,6 @@ class Actor(nn.Module):
 class Critic(nn.Module):
     def __init__(self):
         super(Critic, self).__init__()
-
-        # Fusion multiplier for Visual Features
-        self.alpha = Variable(torch.randn(1), requires_grad=True)*0+1
-        
-        # Fusion multiplier for Scent
-        self.beta = Variable(torch.randn(1), requires_grad=True)*0+1
-        
-        # Learnable classifier1
-        self.vision_features = nn.Sequential(
-            nn.Linear(11*11*3, 50),
-            nn.LeakyReLU(inplace=True),
-            nn.Linear(50, 10),
-            nn.LeakyReLU(inplace=True)
-            )
-        self.vision_features.apply(weights_init)
-        # Learnable classifier2
         self.network = nn.Sequential(
             nn.Linear(14, 10),
             nn.LeakyReLU(inplace=True),
@@ -129,6 +113,6 @@ class Critic(nn.Module):
         # scent = self.beta * scent
         # movement = torch.tensor([moved]).float()
         # movement.requires_grad=True
-        # combined_features = torch.cat((vision_features, scent, movement), 0)
+        # combined_features = torch.ca t((vision_features, scent, movement), 0)
         actions = self.network(state)#combined_features)
         return actions
