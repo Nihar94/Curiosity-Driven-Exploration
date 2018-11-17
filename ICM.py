@@ -15,9 +15,9 @@ def weights_init(m):
     if(classname=='Linear'):
 	    torch.nn.init.xavier_uniform_(m.weight)
 
-class FeatureNet(nn.Module):
+class Features(nn.Module):
 	def __init__(self, args):
-		super(FeatureNet, self).__init__()
+		super(Features, self).__init__()
 		# Fusion multiplier for Visual Features
 		self.alpha = Variable(torch.randn(1), requires_grad=True)*0+1
 		
@@ -65,6 +65,45 @@ class FeatureNet(nn.Module):
 		
 		combined_features = torch.cat((vision_features, scent, movement), 0)
 		combined_features = self.combined_features(combined_features)
-		
 		return combined_features
-		
+
+
+class ForwardModel(nn.Module):
+	def __init__(self):
+		super(ForwardModel, self).__init__()
+		self.network = nn.Sequential(
+			nn.Linear(11, 10),
+			nn.LeakyReLU(inplace=True)
+			nn.Linear(10,10)
+			)
+		self.network.apply(weights_init)
+		self.sm = nn.Softmax(dim=0)
+
+	def forward(self, state_features, action):
+		representation = torch.cat((state_features, action), 0)
+		next_state_features = self.network(representation)
+		return next_state_features
+
+
+class InverseModel(nn.Module):
+	def __init__(self):
+		super(InverseModel, self).__init__()
+		self.network = nn.Sequential(
+			nn.Linear(20, 10),
+			nn.LeakyReLU(inplace=True)
+			nn.Linear(10,3)
+			)
+		self.network.apply(weights_init)
+		self.sm = nn.Softmax(dim=0)
+
+	def forward(self, state_features, next_state_features):
+		a_cap = self.network(state_features, next_state_features)
+		return a_cap
+
+class IntrinsicReward():
+	#def __init__(self):
+
+	def distance(self, predicted_next_state_features, next_state_features):
+		L1 = torch.abs(predicted_next_state_features - next_state_features)
+		ri = L1.mean()
+		return ri
