@@ -99,7 +99,7 @@ class Curiosity():
 			e+=1
 			if(e%100):
 				self.epsilon *= 0.95
-			states, actions, rewards, action_probs = self.generate_episode(self.env)
+			states, actions, rewards, action_probs = self.generate_episode()
 			self.actor_model = self.actor_model
 			T = len(states)
 			N = self.N
