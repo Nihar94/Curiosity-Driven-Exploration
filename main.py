@@ -79,10 +79,12 @@ class Curiosity():
 			N = self.N
 			R = torch.FloatTensor([0]*T)
 			ICM_loss = 0
+			t2 = 0 #just a tmp for ICMLoss iteration
 			for t in range(T-1, 0, -1):
 				V_end = 0 if (t+N>=T) else self.critic_model.forward(states[t+N])[actions[t+N]]
 				R[t] = (gamma**N)*V_end
-				ICM_loss += self.ICMLoss(states[t], states[t+1], action_probs[t])
+				ICM_loss += self.ICMLoss(states[t2], states[t2+1], action_probs[t2])
+				t2 += 1
 				#pdb.set_trace()
 				tmp = 0
 				for k in range(N):
@@ -100,7 +102,7 @@ class Curiosity():
 			L_w = torch.mean((R - Vw_St)**2)
 			actor_optimizer.zero_grad()
 			critic_optimizer.zero_grad()
-			tmp = L_theta + L_w + ICMLoss
+			tmp = L_theta + L_w + ICM_loss
 			tmp.backward()
 			actor_optimizer.step()
 			critic_optimizer.step()
@@ -112,11 +114,13 @@ class Curiosity():
 
 	def ICMLoss(self, state, next_state, action_prob, lamda = 0.5, beta = 0.3):
 		pred_next_state_features = self.icm_forward(state, action_prob)
-		Lf, ri = self.intrinsic_reward(pred_next_state_features, next_state)
+		Lf, ri = self.intrinsic_reward.distance(pred_next_state_features, next_state)
 		pred_action_prob = self.inv_model(state, next_state)
 		Li = self.inv_model.inv_loss(pred_action_prob, action_prob)
 		loss = -lamda*(ri) + (1-beta)*Li + beta*Lf
+		loss = torch.mean(loss)
 		return loss
+
 def parse_arguments():
 	parser = argparse.ArgumentParser()
 	parser.add_argument('--model-config-path', dest='model_config_path',

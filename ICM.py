@@ -73,9 +73,9 @@ class ForwardModel(nn.Module):
 	def __init__(self):
 		super(ForwardModel, self).__init__()
 		self.network = nn.Sequential(
-			nn.Linear(13, 10),
+			nn.Linear(17, 17),
 			nn.LeakyReLU(inplace=True),
-			nn.Linear(10,10)
+			nn.Linear(17,14)
 			)
 		self.network.apply(weights_init)
 		self.sm = nn.Softmax(dim=0)
@@ -90,7 +90,7 @@ class InverseModel(nn.Module):
 	def __init__(self):
 		super(InverseModel, self).__init__()
 		self.network = nn.Sequential(
-			nn.Linear(20, 10),
+			nn.Linear(28, 10),
 			nn.LeakyReLU(inplace=True),
 			nn.Linear(10,3)
 			)
@@ -98,11 +98,12 @@ class InverseModel(nn.Module):
 		self.sm = nn.Softmax(dim=0)
 
 	def forward(self, state_features, next_state_features):
-		a_cap = self.network(state_features, next_state_features)
+		feats = torch.cat((state_features, next_state_features),0)
+		a_cap = self.sm(self.network(feats))
 		return a_cap
 
 	def inv_loss(self, pred_action_prob, action_prob):
-		L1 = torch.abs(predicted_action_prob - action_prob)
+		L1 = torch.abs(pred_action_prob - action_prob)
 		L1 = L1.mean()
 		return L1
 
