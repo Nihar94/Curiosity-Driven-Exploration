@@ -39,6 +39,7 @@ class Curiosity():
 		self.icm_lr = args.icm_lr
 		self.env = env
 		self.num_episodes = args.num_episodes
+		self.mem_state = env.reset()
 
 	def play(self, args):
 		env = gym.make('NEL-render-v0')
@@ -53,12 +54,12 @@ class Curiosity():
 			state, reward, done, info = env.step(action)
 
 	# Generating all episodes on CPU. Loading and Unloading single states is expensive.
-	def generate_episode(self, env):
+	def generate_episode(self):
 		states = []
 		actions = []
 		actions_probdist = []
 		rewards = []
-		state = env.reset()
+		state = self.mem_state
 		e = 0
 		self.actor_model = self.actor_model
 		t1 = time.time()
@@ -80,6 +81,7 @@ class Curiosity():
 			state = next_state
 			if(reward>0):
 				t2 = time.time()
+				self.mem_state = state
 				print('Time taken for generating this episode: ' + str(int(t2-t1)) + ' seconds')
 				break
 		return torch.stack(states), torch.LongTensor(actions), torch.FloatTensor(rewards), torch.stack(actions_probdist)
