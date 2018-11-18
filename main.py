@@ -104,7 +104,7 @@ class Curiosity():
 			T = len(states)
 			N = self.N
 			R = torch.FloatTensor([0]*T)
-			loss_multiplier = (1/(torch.mean(rewards).item())) # To force large updates on episodes that get rewards late and vice-versa
+			loss_multiplier = 1#(1/(torch.mean(rewards).item())) # To force large updates on episodes that get rewards late and vice-versa
 			mean_rewards.append(torch.mean(rewards).item())
 			print('Number of actions in episode: '+str(T))
 			print('Mean Reward: '+str(torch.mean(rewards).item()))
@@ -175,7 +175,9 @@ def parse_arguments():
 	parser.add_argument('--n', dest='n', type=int,
 						default=100, help="The value of N in N-step A2C.")
 	parser.add_argument('--load_models', dest='load_models', type=bool,
-						default=False, help="Load all models")
+						default=True, help="Load all models")
+	parser.add_argument('--play', dest='play', type=int,
+						default=0, help="Load all models")
 	parser_group = parser.add_mutually_exclusive_group(required=False)
 	parser_group.add_argument('--render', dest='render',
 								action='store_true',
@@ -191,8 +193,9 @@ def main(args):
 	global env
 	args = parse_arguments()
 	curiosity = Curiosity(args)
-	curiosity.train(args)
-	# curiosity.play(args)
-
+	if(args.play==1):
+		curiosity.play(args)
+	else:
+		curiosity.train(args)
 if __name__ == '__main__':
 	main(sys.argv)
