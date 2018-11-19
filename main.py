@@ -11,6 +11,7 @@ import nel
 import gym
 import pdb
 import time
+import gc
 
 env = gym.make('NEL-v0')
 
@@ -89,87 +90,64 @@ class Curiosity():
 	def train(self, args, gamma=1.0):
 		actor_optimizer = torch.optim.Adam(self.actor_model.parameters(), lr=self.actor_lr)
 		critic_optimizer = torch.optim.Adam(self.critic_model.parameters(), lr=self.critic_lr)
-		#list(self.actor_model.parameters()) + list(self.critic_model.parameters()) +
-		params = list(self.features.parameters()) + list(self.icm_forward.parameters()) + list(self.inv_model.parameters()) + list(self.icm_features.parameters())
+		
+		params = list(self.actor_model.parameters()) + list(self.critic_model.parameters()) +list(self.features.parameters()) + list(self.icm_forward.parameters()) + list(self.inv_model.parameters()) + list(self.icm_features.parameters())
 		icm_optimizer = torch.optim.Adam(params, lr=args.icm_lr)
 		e = 0
+		rews = np.asarray([])
 		mean_rewards = []
-		states = []
-		actions = []
-		actions_probdist = []
-		rewards = []
-		state = env.reset()
-		for i in range(100000):
-			print('Step: '+str(i))
+		#R = torch.FloatTensor([0]*30000)
+		while True:
+			print('Episode: '+str(e))
 			e+=1
-			if(i%100):
+			if(e%100):
 				self.epsilon *= 0.95
-			actions_arr = torch.arange(self.env.action_space.n)
-			state = self.features(state)
-			action_probs = self.actor_model(state)
-			actions_probdist.append(action_probs)
-			p = np.random.random(1)
-			if(np.random.random(1) < self.epsilon):
-				action = np.random.randint(env.action_space.n)
-			else:
-				action = np.random.choice(actions_arr, p=action_probs.detach().numpy())
-			next_state, reward, done, info = env.step(action)
-
-			actions.append(action)
-			states.append(state)
-			rewards.append(reward)
-			state = next_state
-			np.save('rewards_a2c.npy', np.asarray(rewards))
-
-			states1 = torch.stack(states)
-			actions1 = torch.LongTensor(actions)
-			rewards1 = torch.FloatTensor(rewards)
-			action_probs1 = torch.stack(actions_probdist)
-
+			states, actions, rewards, action_probs = self.generate_episode()
+			rews = np.concatenate((rews, rewards.numpy()))
+			#np.save('rews_a2c.npy', rews)
 			self.actor_model = self.actor_model
 			T = len(states)
 			N = self.N
+			#R  = R*0
 			R = torch.FloatTensor([0]*T)
-			if not torch.mean(rewards1).item() == 0:
-				loss_multiplier = (1/(torch.mean(rewards1).item())) # To force large updates on episodes that get rewards late and vice-versa
-			mean_rewards.append(torch.mean(rewards1).item())
+			loss_multiplier = 1#(1/(torch.mean(rewards).item())) # To force large updates on episodes that get rewards late and vice-versa
+			mean_rewards.append(torch.mean(rewards).item())
 			print('Number of actions in episode: '+str(T))
-			print('Mean Reward: '+str(torch.mean(rewards1).item()))
+			print('Mean Reward: '+str(torch.mean(rewards).item()))
 			print('')
 			ICM_loss = 0
 			t2 = 0 #just a tmp for ICMLoss iteration
 			for t in range(T-1, 0, -1):
-				V_end = 0 if (t+N>=T) else self.critic_model.forward(states1[t+N])[actions1[t+N]]
+				V_end = 0 if (t+N>=T) else self.critic_model.forward(states[t+N].detach())[actions[t+N]]
 				R[t] = (gamma**N)*V_end
-				ICM_loss += self.ICMLoss(states1[t2], states1[t2+1], action_probs1[t2])
+				#ICM_loss += self.ICMLoss(states[t2], states[t2+1], action_probs[t2])
 				t2 += 1
 				tmp = 0
 				for k in range(N):
-					tmp += (gamma**k)*rewards1[t+k] if(t+k<T) else 0
+					tmp += (gamma**k)*rewards[t+k] if(t+k<T) else 0
 				R[t] += tmp
-			pi_A_S = self.actor_model(states1)
+			pi_A_S = self.actor_model(states)
 			log_prob = torch.log(pi_A_S)
 			log_probs = torch.zeros(len(log_prob))
-			actions1 = actions1.long()
-			for i in range(len(actions1)):
-				log_probs[i] = log_prob[i][actions1[i]]
-			Vw_St, _ = torch.max(self.critic_model(states1),dim=1)
-			scaling_factor = (R.detach() - Vw_St.detach())
+			actions = actions.long()
+			for i in range(len(actions)):
+				log_probs[i] = log_prob[i][actions[i]]
+			Vw_St, _ = torch.max(self.critic_model(states),dim=1)
+			scaling_factor = (R[:T].detach() - Vw_St.detach())
 
 			L_theta = torch.mean(scaling_factor*(-log_probs))
-			L_w = torch.mean((R - Vw_St)**2)
+			L_w = torch.mean((R[:T] - Vw_St)**2)
 			actor_optimizer.zero_grad()
 			critic_optimizer.zero_grad()
-			icm_optimizer.zero_grad()
-			if not torch.mean(rewards1).item() == 0:
-				tmp = loss_multiplier*(L_theta + L_w)
-			else:
-				tmp = (L_theta + L_w)
-			tmp.backward(retain_graph=True)
+			#icm_optimizer.zero_grad()
+
+			tmp = loss_multiplier*(L_theta + L_w)# + ICM_loss)
+			tmp.backward()
 			actor_optimizer.step()
 			critic_optimizer.step()
-			icm_optimizer.step()
-			np.save('mean_rewards_graph', mean_rewards)
+			#icm_optimizer.step()
+			np.save('mean_rewards_a2c_graph', mean_rewards)
+			gc.collect()
 			if(e%10==0):
 				torch.save(self.inv_model.state_dict(),'./models/inv_model')
 				torch.save(self.icm_forward.state_dict(),'./models/icm_forward')
@@ -204,9 +182,9 @@ def parse_arguments():
 	parser.add_argument('--n', dest='n', type=int,
 						default=100, help="The value of N in N-step A2C.")
 	parser.add_argument('--load_models', dest='load_models', type=bool,
-						default=True, help="Load all models")
+						default=False, help="Load all models")
 	parser.add_argument('--play', dest='play', type=int,
-						default=0, help="Load all models")
+						default=0, help="Play 1 or Train 0")
 	parser_group = parser.add_mutually_exclusive_group(required=False)
 	parser_group.add_argument('--render', dest='render',
 								action='store_true',
@@ -222,9 +200,10 @@ def main(args):
 	global env
 	args = parse_arguments()
 	curiosity = Curiosity(args)
-	if(args.play==1):
-		curiosity.play(args)
-	else:
+	if(args.play==0):
 		curiosity.train(args)
+	else:
+		curiosity.play(args)
+
 if __name__ == '__main__':
 	main(sys.argv)
