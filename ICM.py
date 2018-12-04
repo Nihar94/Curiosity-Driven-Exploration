@@ -21,10 +21,10 @@ class ICMFeatures(nn.Module):
 		super(ICMFeatures, self).__init__()
 		# Fusion multiplier for Visual Features
 		self.alpha = Variable(torch.randn(1), requires_grad=True)*0+1
-		
+
 		# Fusion multiplier for Scent
 		self.beta = Variable(torch.randn(1), requires_grad=True)*0+1
-		
+
 		# Learnable classifier1
 		self.vision_features = nn.Sequential(
 			nn.Linear(11*11, 50),
@@ -45,25 +45,25 @@ class ICMFeatures(nn.Module):
 	def forward(self, states):
 		prev_scent = torch.from_numpy(states[0]['scent'])
 		curr_scent = torch.from_numpy(states[1]['scent'])
-		
+
 		prev_vision = torch.from_numpy(states[0]['vision']).permute(2,0,1).unsqueeze(0)
 		curr_vision = torch.from_numpy(states[1]['vision']).permute(2,0,1).unsqueeze(0)
-		
+
 		prev_moved = int(states[0]['moved'] == True)*10
 		curr_moved = int(states[1]['moved'] == True)*10
-		
+
 		vision_features = torch.cat((prev_vision, curr_vision), 0)
-		
+
 		vision_features = self.cnns(vision_features)
 		vision_features = vision_features.view(vision_features.size(0), 3*2*2)
-		
+
 		vision_features = self.alpha * self.vision_features(vision_features).view(2, -1)
-		
+
 		scent = torch.cat((prev_scent, curr_scent), 0)
 		scent = self.beta * scent
 		movement = torch.tensor([prev_moved, curr_moved]).float()
 		movement.requires_grad=True
-		
+
 		combined_features = torch.cat((vision_features, scent, movement), 0)
 		combined_features = self.combined_features(combined_features)
 		return combined_features
@@ -85,6 +85,27 @@ class ForwardModel(nn.Module):
 		next_state_features = self.network(representation)
 		return next_state_features
 
+class ForwardModelLSTM(nn.Module):
+	def __init__(self):
+		super(ForwardModelLSTM, self).__init__()
+		self.network = nn.LSTM(17, 14, 1)
+		self.network.apply(weights_init)
+		self.hidden = self.init_hidden()
+		self.sm = nn.Softmax(dim=0)
+	def init_hidden(self):
+		return (torch.zeros(1, 1, 14),
+                torch.zeros(1, 1, 14))
+
+
+	def forward(self, state_features, action_prob):
+		self.hidden = self.init_hidden()
+		print(state_features.shape)
+		print(action_prob.shape)
+		representation = torch.cat((state_features, action_prob), 1).unsqueeze(1)
+		next_state_features = self.network(representation, self.hidden)
+
+		return next_state_features
+
 
 class InverseModel(nn.Module):
 	def __init__(self):
@@ -99,6 +120,27 @@ class InverseModel(nn.Module):
 
 	def forward(self, state_features, next_state_features):
 		feats = torch.cat((state_features, next_state_features),0)
+		a_cap = self.sm(self.network(feats))
+		return a_cap
+
+	def inv_loss(self, pred_action_prob, action_prob):
+		L1 = torch.abs(pred_action_prob - action_prob)
+		L1 = L1.mean()
+		return L1
+
+class InverseModelLSTM(nn.Module):
+	def __init__(self):
+		super(InverseModelLSTM, self).__init__()
+		self.network = nn.Sequential(
+			nn.Linear(28, 10),
+			nn.LeakyReLU(inplace=True),
+			nn.Linear(10,3)
+			)
+		self.network.apply(weights_init)
+		self.sm = nn.Softmax(dim=0)
+
+	def forward(self, state_features, next_state_features):
+		feats = torch.cat((state_features, next_state_features),1)
 		a_cap = self.sm(self.network(feats))
 		return a_cap
 
